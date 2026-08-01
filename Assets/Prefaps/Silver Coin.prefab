@@ -164,4 +164,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ab1944f057090ab44989fc9a8d3e7276, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Item
-  point: 2
+  point: 250
+  itemType: 0

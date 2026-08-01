@@ -21,9 +21,14 @@ public class PlayerMove : MonoBehaviour
     public AudioClip itemSound;
     public AudioClip dieSound;
     public AudioClip clearSound;
+
+    CapsuleCollider2D cap;
+    public PhysicsMaterial2D OnFriction;
+    public PhysicsMaterial2D OffFriction;
     
     void Awake()
     {
+        cap = GetComponent<CapsuleCollider2D>();
         rigid = GetComponent<Rigidbody2D>();
         sprite = GetComponent<SpriteRenderer>();
         animator = GetComponent<Animator>();
@@ -49,7 +54,7 @@ public class PlayerMove : MonoBehaviour
             PlaySound("jump");
             animator.SetBool("isJumping", true);
             rigid.AddForce(Vector2.up * jumpPower, ForceMode2D.Impulse);
-        }
+        } // 점프키를 뗄 때 속도를 줄여서 점프 높이를 조절
         else if (Input.GetButtonUp("Jump") && rigid.linearVelocity.y >= -0.1f)
         {
             rigid.linearVelocity = new Vector2(rigid.linearVelocity.x, rigid.linearVelocity.y * 0.1f);
@@ -75,6 +80,7 @@ public class PlayerMove : MonoBehaviour
             sprite.flipX = false;
         }
 
+        //낙하 애니메이션
         if (j == 0)
         {
             animator.SetBool("isFalling", true);
@@ -100,17 +106,17 @@ public class PlayerMove : MonoBehaviour
             rigid.linearVelocity = new Vector2(-maxSpeed, rigid.linearVelocity.y);
         }
 
-        // 바닥 착지
-        Debug.DrawLine(rigid.position + new Vector2(-0.5f, 0), rigid.position + new Vector2(0.5f, 0f), new Color(0, 1, 0));
-        Debug.DrawLine(rigid.position + new Vector2(-0.5f, 0), rigid.position + new Vector2(-0.5f, -1f), new Color(0, 1, 0));
-        Debug.DrawLine(rigid.position + new Vector2(-0.5f, -1), rigid.position + new Vector2(0.5f, -1f), new Color(0, 1, 0));
-        Debug.DrawLine(rigid.position + new Vector2(0.5f, 0), rigid.position + new Vector2(0.5f, -1f), new Color(0, 1, 0));
-        RaycastHit2D rayHit = Physics2D.BoxCast(rigid.position, new Vector2(1.5f, 1f), 0f, Vector2.down, 1f, LayerMask.GetMask("Platform"));
-        RaycastHit2D rayHit2 = Physics2D.BoxCast(rigid.position + new Vector2(0, -0.5f), new Vector2(1.5f, 1f), 0f, Vector2.down, 1f, LayerMask.GetMask("Obstacle"));
+        //캐릭터 아래에 레이박스를 쏴서 바닥이 감지되는지 확인
+        RaycastHit2D rayHit = Physics2D.BoxCast(rigid.position, new Vector2(0.7f, 0.6f), 0f, Vector2.down, 0.6f, LayerMask.GetMask("Platform"));
+        //캐릭터 0.4 아래에 레이박스를 쏴서 적이 감지되는지 확인
+        RaycastHit2D rayHit2 = Physics2D.BoxCast(rigid.position + new Vector2(0, 0.4f), new Vector2(1.8f, 2f), 0f, Vector2.down, 2f, LayerMask.GetMask("Obstacle"));
+        
+        //바닥에 닿았는지 확인
         if (rayHit.collider != null && rayHit.collider.gameObject.layer == 6)
         {
-            if (rayHit.distance <= 0.5f && (rigid.linearVelocity.y <= 0)) // 착지중 혹은 착지
+            if (rayHit.distance <= 0.2f && (rigid.linearVelocity.y <= 0)) // 착지중 혹은 착지
             {
+                cap.sharedMaterial = OnFriction;
                 j = 1f;
                 animator.SetBool("isJumping", false);
             }
@@ -120,11 +126,13 @@ public class PlayerMove : MonoBehaviour
             }
         }
 
-        if (rayHit.collider == null)
+        if (rayHit.collider == null) // 허공으로 떨어지고 있는 경우 (아무것도 감지되지 않음)
         {
             j = 0f;
+            cap.sharedMaterial = OffFriction;
         }
 
+        //적이 감지되는지 확인
         if (rayHit2.collider != null && rayHit2.collider.gameObject.CompareTag("Enemy"))
         {
             Physics2D.IgnoreLayerCollision(playerDamagedLayer, enemyLayer, false);
@@ -134,7 +142,7 @@ public class PlayerMove : MonoBehaviour
             Physics2D.IgnoreLayerCollision(playerDamagedLayer, enemyLayer, true);
         }
 
-
+        //낙사
         if (transform.position.y <= -10)
         {
             OnDamaged();
@@ -144,48 +152,73 @@ public class PlayerMove : MonoBehaviour
 
     //충돌 시 이벤트
     void OnCollisionEnter2D(Collision2D collision)
-    {
+    {   
+        //장애물의 x좌표를 가져옴
         float contactX = collision.contacts[0].point.x;
 
+        //장애물이 적일 경우
         if (collision.gameObject.tag == "Enemy")
         {
+            //적의 y좌표보다 플레이어의 y좌표가 높고, 플레이어가 아래로 떨어지고 있을 때 공격
             if (rigid.linearVelocity.y < 0 && rigid.position.y > collision.transform.position.y)
             {
                 OnAttack(collision.transform);
             }
-            else
+            else // 그 외의 경우 피격
             {
                 OnDamaged(contactX);
                 Invoke("OffDamaged", 2f);
             }
         }
-
+        
+        //장애물이 장애물일 경우
         if (collision.gameObject.tag == "Obstacle")
         {
+            // 피격
             OnDamaged(contactX);
             Invoke("OffDamaged", 2f);
         }
     }
 
+    //트리거로 충돌 시 이벤트
     void OnTriggerEnter2D(Collider2D collision)
     {
         if (collision.gameObject.tag == "Item")
         {
             Item item = collision.GetComponent<Item>();
-            gameManager.stagePoint += item.point;
-            PlaySound("item");
-            collision.gameObject.SetActive(false);
+            //아이템 획득
+            if (item.itemType == Item.ItemType.Coin)
+            {
+                gameManager.stagePoint += item.point;
+                PlaySound("item");
+                collision.gameObject.SetActive(false);
+            }
+
+            else if (item.itemType == Item.ItemType.Apple)
+            {
+                health += 1;
+                gameManager.stagePoint += item.point;
+                if (health > 5)
+                {
+                    health = 5;
+                }
+                PlaySound("item");
+                gameManager.UIHealth[health - 1].gameObject.SetActive(true);
+                collision.gameObject.SetActive(false);
+            }
         }
-        else if (collision.gameObject.tag == "Finish")
+        
+        
+        if (collision.gameObject.tag == "Finish") //피니시 라인에 도달했을 때 다음 스테이지로 이동
         {
             gameManager.NextStage();
         }
     }
 
-    //피격무적
+    //피격무적 (targetPos가 null이면 낙사로직, null이 아니면 적과 충돌로직)
     void OnDamaged(float? targetPos = null)
     {
-        if (targetPos.HasValue) // 피격로직
+        if (targetPos.HasValue) 
         {
         gameObject.layer = 9; // PlayerDamaged로 레이어 교체
         health -= 1;
@@ -239,7 +272,7 @@ public class PlayerMove : MonoBehaviour
     {
         PlaySound("attack");
         EnemyMove enemyMove = enemy.GetComponent<EnemyMove>();
-        gameManager.stagePoint += 1;
+        gameManager.stagePoint += 150;
         rigid.AddForce(Vector2.up * 3, ForceMode2D.Impulse);
         enemyMove.OnDamaged();
     }
